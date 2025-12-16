@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
 
-from model_mnist import CondRefineNetDilated
+from model_mnist_plus import CondRefineNetDilated
 from trainer import NCSNTrainer
 from utils import get_train_set, config, device
 
@@ -22,10 +22,15 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument("--channels", type=int, default=1)
     parser.add_argument("--logit_transform", action="store_true", default=False)
-    parser.add_argument("--random_flip", action="store_true", default=False)
+    parser.add_argument("--random_flip", action="store_true", default=True)
     parser.add_argument("--num_classes", type=int, default=10)
-    parser.add_argument("--ngf", type=int, default=64)
+    parser.add_argument("--ngf", type=int, default=96)
     parser.add_argument("--save_every", type=int, default=10000)
+    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--weight_decay", type=float, default=0.0)
+    parser.add_argument("--ema_rate", type=float, default=0.999)
+    parser.add_argument("--checkpoints_folder", type=str, default="checkpoints")
+    parser.add_argument("--samples_folder", type=str, default="sampled_images")
     args = parser.parse_args()
 
     fashion_mnist_config = config(
@@ -36,11 +41,12 @@ if __name__ == "__main__":
         args.random_flip,
         args.num_classes,
         args.ngf,
+        args.dropout,
     )
 
     ncsn = CondRefineNetDilated(fashion_mnist_config).to(device)
 
-    dataloader = get_train_set(args.batch_size, "FashionMNIST")
+    dataloader = get_train_set(args.batch_size, "FashionMNIST", args.random_flip)
 
     trainer = NCSNTrainer(
         ncsn,
@@ -51,6 +57,8 @@ if __name__ == "__main__":
         args.beta2,
         args.checkpoints_folder,
         args.save_every,
+        args.weight_decay,
+        args.ema_rate,
         checkpoint_name_prefix="fashion",
     )
     trainer.train_ncsn()

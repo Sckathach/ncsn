@@ -21,17 +21,32 @@ class NCSNTrainer:
         beta2,
         checkpoints_folder,
         save_every,
+        weight_decay=0.0,
+        ema_rate=0.999,
         checkpoint_name_prefix="ncsn",
     ):
         self.L = 10
         self.sigmas = torch.Tensor([0.599**i for i in range(0, 10)]).to(device)
         self.ncsn = ncsn
-        self.ncsn_opt = Adam(self.ncsn.parameters(), lr=lr, betas=(beta1, beta2))
+        self.ncsn_opt = Adam(
+            self.ncsn.parameters(),
+            lr=lr,
+            betas=(beta1, beta2),
+            weight_decay=weight_decay,
+        )
         self.dataloader = dataloader
         self.num_iters = num_iters
         self.save_folder = checkpoints_folder
         self.save_every = save_every
         self.checkpoint_name_prefix = checkpoint_name_prefix
+        self.ema_rate = ema_rate
+
+        if self.ema_rate > 0:
+            self.ema_ncsn = type(ncsn)(ncsn.config).to(device)
+            self.ema_ncsn.load_state_dict(ncsn.state_dict())
+            self.ema_ncsn.eval()
+        else:
+            self.ema_ncsn = None
 
     def _loss_tensor(self, batch, which_sigmas):
         batch_size = batch.shape[0]
@@ -51,6 +66,15 @@ class NCSNTrainer:
         loss = (1 / (2 * batch_size)) * normsq * torch.squeeze(selected_sigmas) ** 2
         return loss.sum()
 
+    def _update_ema(self):
+        if self.ema_ncsn is not None:
+            for ema_param, param in zip(
+                self.ema_ncsn.parameters(), self.ncsn.parameters()
+            ):
+                ema_param.data.mul_(self.ema_rate).add_(
+                    param.data, alpha=1 - self.ema_rate
+                )
+
     def train_ncsn(self):
         os.makedirs(self.save_folder, exist_ok=True)
         curr_iter = 0
@@ -66,6 +90,8 @@ class NCSNTrainer:
                 loss = self._loss_tensor(batch, which_sigmas)
                 loss.backward()
                 self.ncsn_opt.step()
+                self._update_ema()
+
                 if curr_iter % 10 == 0:
                     logger.info(f"iter: {curr_iter}  |  loss: {round(loss.item(), 3)}")
                 curr_iter += 1
@@ -79,6 +105,10 @@ class NCSNTrainer:
         filename = f"{self.checkpoint_name_prefix}_{save_num}.pt"
         save_path = os.path.join(self.save_folder, filename)
         torch.save(self.ncsn.state_dict(), save_path)
+        if self.ema_ncsn is not None:
+            filename_ema = f"{self.checkpoint_name_prefix}_ema_{save_num}.pt"
+            save_path_ema = os.path.join(self.save_folder, filename_ema)
+            torch.save(self.ema_ncsn.state_dict(), save_path_ema)
 
     def _get_image_shape(self):
         batch, __ = next(iter(self.dataloader))
@@ -93,6 +123,8 @@ class NCSNTrainer:
             logger.info(f"Starting sigma {i}")
             ai = eps * self.sigmas[i] ** 2 / self.sigmas[L - 1] ** 2
             i_tensor = torch.Tensor([i] * num_samples).long().to(device)
+            # Need to clone x_prev for safe iteration in case of in-place ops (though not strictly needed here)
+            # But the user logic is fine.
             for t in track(range(T)):
                 zt = torch.randn_like(x_prev)  # normal 0, I
                 score = trained_ncsn(x_prev, i_tensor)

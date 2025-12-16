@@ -6,7 +6,7 @@ from torchvision import transforms
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def get_train_set(batch_size, dataset_name="MNIST"):
+def get_train_set(batch_size, dataset_name="MNIST", random_flip=False):
     """
     Returns a DataLoader for the dataset with the specified batch size
 
@@ -16,13 +16,24 @@ def get_train_set(batch_size, dataset_name="MNIST"):
         Batch size of train loader
     dataset_name : str
          Name of the dataset (MNIST or FashionMNIST)
+    random_flip : bool
+        Whether to apply random horizontal flip
 
     Returns
     -------
     trainloader : DataLoader
 
     """
-    transform = transforms.Compose([transforms.Resize(32), transforms.ToTensor()])
+    if random_flip:
+        transform = transforms.Compose(
+            [
+                transforms.Resize(32),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+            ]
+        )
+    else:
+        transform = transforms.Compose([transforms.Resize(32), transforms.ToTensor()])
 
     if dataset_name == "MNIST":
         trainset = torchvision.datasets.MNIST(
@@ -51,9 +62,10 @@ class config_data:
 
 
 class config_model:
-    def __init__(self, num_classes, ngf):
+    def __init__(self, num_classes, ngf, dropout=0.0):
         self.num_classes = num_classes
         self.ngf = ngf
+        self.dropout = dropout
 
 
 class config:
@@ -66,8 +78,9 @@ class config:
         random_flip,
         num_classes,
         ngf,
+        dropout=0.0,
     ):
         self.data = config_data(
             dataset, image_size, channels, logit_transform, random_flip
         )
-        self.model = config_model(num_classes, ngf)
+        self.model = config_model(num_classes, ngf, dropout)
