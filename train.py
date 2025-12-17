@@ -1,14 +1,7 @@
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import torch
-
-from model_mnist_plus import CondRefineNetDilated
+from large_unet import CondRefineNetDilated as LargeNet
+from original_unet import CondRefineNetDilated as OriginalNet
 from trainer import NCSNTrainer
-from utils import get_train_set, config, device
-
+from utils import config, device, get_train_set
 
 if __name__ == "__main__":
     import argparse
@@ -17,8 +10,12 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--beta1", type=float, default=0.9)
     parser.add_argument("--beta2", type=float, default=0.999)
+    parser.add_argument("--sigma_start", type=float, default=2)
+    parser.add_argument("--sigma_end", type=float, default=0.1)
+    parser.add_argument("--n_sigmas", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_iters", type=int, default=100001)
+    parser.add_argument("--model_name", type=str, default="FashionMNIST")
     parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument("--channels", type=int, default=1)
     parser.add_argument("--logit_transform", action="store_true", default=False)
@@ -33,8 +30,8 @@ if __name__ == "__main__":
     parser.add_argument("--samples_folder", type=str, default="sampled_images")
     args = parser.parse_args()
 
-    fashion_mnist_config = config(
-        "FashionMNIST",
+    model_config = config(
+        args.model_name,
         args.image_size,
         args.channels,
         args.logit_transform,
@@ -44,43 +41,27 @@ if __name__ == "__main__":
         args.dropout,
     )
 
-    ncsn = CondRefineNetDilated(fashion_mnist_config).to(device)
+    if args.model_name == "FashionMNIST":
+        ncsn = LargeNet(model_config).to(device)
+    else:
+        ncsn = OriginalNet(model_config).to(device)
 
-    dataloader = get_train_set(args.batch_size, "FashionMNIST", args.random_flip)
+    dataloader = get_train_set(args.batch_size, args.model_name, args.random_flip)
 
     trainer = NCSNTrainer(
         ncsn,
-        args.lr,
-        dataloader,
-        args.num_iters,
-        args.beta1,
-        args.beta2,
-        args.checkpoints_folder,
-        args.save_every,
-        args.weight_decay,
-        args.ema_rate,
-        checkpoint_name_prefix="fashion",
+        lr=args.lr,
+        dataloader=dataloader,
+        num_iters=args.num_iters,
+        beta1=args.beta1,
+        beta2=args.beta2,
+        sigma_start=args.sigma_start,
+        sigma_end=args.sigma_end,
+        n_sigmas=args.n_sigmas,
+        checkpoints_folder=args.checkpoints_folder,
+        save_every=args.save_every,
+        weight_decay=args.weight_decay,
+        ema_rate=args.ema_rate,
+        checkpoint_name_prefix=args.model_name,
     )
     trainer.train_ncsn()
-
-    # Sampling test
-    saved_idx = int((args.num_iters - 1) // args.save_every)
-    if saved_idx > 0:
-        model_name = f"fashion_{saved_idx}.pt"
-        model_path = os.path.join(args.checkpoints_folder, model_name)
-
-        if os.path.exists(model_path):
-            state_dict = torch.load(model_path, map_location=device)
-            trained_ncsn = CondRefineNetDilated(fashion_mnist_config).to(device)
-            trained_ncsn.load_state_dict(state_dict)
-            trained_ncsn.eval()
-
-            eps = 2e-5
-            T = 100
-            nrow = 4
-            output_path = os.path.join(
-                args.samples_folder, f"fashion_{saved_idx * args.save_every}.png"
-            )
-            trainer.save_sample_grid(
-                nrow, trained_ncsn, eps, T, output_path=output_path
-            )

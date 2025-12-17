@@ -1,12 +1,13 @@
-import torchvision
 import torch
+import torchvision
 from torchvision import transforms
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def get_train_set(batch_size, dataset_name="MNIST", random_flip=False):
+def get_train_set(
+    batch_size: int, dataset_name: str = "MNIST", random_flip: bool = False
+):
     """
     Returns a DataLoader for the dataset with the specified batch size
 
@@ -53,7 +54,14 @@ def get_train_set(batch_size, dataset_name="MNIST", random_flip=False):
 
 
 class config_data:
-    def __init__(self, dataset, image_size, channels, logit_transform, random_flip):
+    def __init__(
+        self,
+        dataset,
+        image_size: int,
+        channels: int,
+        logit_transform: bool,
+        random_flip: bool,
+    ):
         self.dataset = dataset
         self.image_size = image_size
         self.channels = channels
@@ -62,7 +70,7 @@ class config_data:
 
 
 class config_model:
-    def __init__(self, num_classes, ngf, dropout=0.0):
+    def __init__(self, num_classes: int, ngf: int, dropout: float = 0.0):
         self.num_classes = num_classes
         self.ngf = ngf
         self.dropout = dropout
@@ -72,13 +80,13 @@ class config:
     def __init__(
         self,
         dataset,
-        image_size,
-        channels,
-        logit_transform,
-        random_flip,
-        num_classes,
-        ngf,
-        dropout=0.0,
+        image_size: int,
+        channels: int,
+        logit_transform: bool,
+        random_flip: bool,
+        num_classes: int,
+        ngf: int,
+        dropout: float = 0.0,
     ):
         self.data = config_data(
             dataset, image_size, channels, logit_transform, random_flip

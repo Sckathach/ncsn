@@ -1,10 +1,11 @@
 # Model code taken from the original paper's repository
 # https://github.com/ermongroup/ncsn
 
+from functools import partial
+
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch
-from functools import partial
 
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
@@ -347,14 +348,12 @@ class ConditionalResidualBlock(nn.Module):
         normalization=ConditionalBatchNorm2d,
         adjust_padding=False,
         dilation=None,
-        dropout=0.0,
     ):
         super().__init__()
         self.non_linearity = act
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.resample = resample
-        self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
         if resample == "down":
             if dilation is not None:
                 self.conv1 = dilated_conv3x3(input_dim, input_dim, dilation=dilation)
@@ -397,7 +396,6 @@ class ConditionalResidualBlock(nn.Module):
     def forward(self, x, y):
         output = self.normalize1(x, y)
         output = self.non_linearity(output)
-        output = self.dropout(output)
         output = self.conv1(output)
         output = self.normalize2(output, y)
         output = self.non_linearity(output)
@@ -454,13 +452,11 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
 class CondRefineNetDilated(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.config = config
         self.logit_transform = config.data.logit_transform
         # self.norm = ConditionalInstanceNorm2d
         self.norm = ConditionalInstanceNorm2dPlus
         self.ngf = ngf = config.model.ngf
         self.num_classes = config.model.num_classes
-        self.dropout = config.model.dropout
         self.act = act = nn.ELU()
         # self.act = act = nn.ReLU(True)
 
@@ -478,7 +474,6 @@ class CondRefineNetDilated(nn.Module):
                     resample=None,
                     act=act,
                     normalization=self.norm,
-                    dropout=self.dropout,
                 ),
                 ConditionalResidualBlock(
                     self.ngf,
@@ -487,7 +482,6 @@ class CondRefineNetDilated(nn.Module):
                     resample=None,
                     act=act,
                     normalization=self.norm,
-                    dropout=self.dropout,
                 ),
             ]
         )
@@ -501,7 +495,6 @@ class CondRefineNetDilated(nn.Module):
                     resample="down",
                     act=act,
                     normalization=self.norm,
-                    dropout=self.dropout,
                 ),
                 ConditionalResidualBlock(
                     2 * self.ngf,
@@ -510,7 +503,6 @@ class CondRefineNetDilated(nn.Module):
                     resample=None,
                     act=act,
                     normalization=self.norm,
-                    dropout=self.dropout,
                 ),
             ]
         )
@@ -525,7 +517,6 @@ class CondRefineNetDilated(nn.Module):
                     act=act,
                     normalization=self.norm,
                     dilation=2,
-                    dropout=self.dropout,
                 ),
                 ConditionalResidualBlock(
                     2 * self.ngf,
@@ -535,7 +526,6 @@ class CondRefineNetDilated(nn.Module):
                     act=act,
                     normalization=self.norm,
                     dilation=2,
-                    dropout=self.dropout,
                 ),
             ]
         )
@@ -552,7 +542,6 @@ class CondRefineNetDilated(nn.Module):
                         normalization=self.norm,
                         adjust_padding=True,
                         dilation=4,
-                        dropout=self.dropout,
                     ),
                     ConditionalResidualBlock(
                         2 * self.ngf,
@@ -562,7 +551,6 @@ class CondRefineNetDilated(nn.Module):
                         act=act,
                         normalization=self.norm,
                         dilation=4,
-                        dropout=self.dropout,
                     ),
                 ]
             )
@@ -578,7 +566,6 @@ class CondRefineNetDilated(nn.Module):
                         normalization=self.norm,
                         adjust_padding=False,
                         dilation=4,
-                        dropout=self.dropout,
                     ),
                     ConditionalResidualBlock(
                         2 * self.ngf,
@@ -588,7 +575,6 @@ class CondRefineNetDilated(nn.Module):
                         act=act,
                         normalization=self.norm,
                         dilation=4,
-                        dropout=self.dropout,
                     ),
                 ]
             )

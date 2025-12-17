@@ -1,11 +1,11 @@
 import os
 from math import sqrt
 
-from rich.progress import track
+import torch
 from loguru import logger
+from rich.progress import track
 from torch.optim import Adam
 from torchvision.utils import save_image
-import torch
 
 from utils import device
 
@@ -14,33 +14,42 @@ class NCSNTrainer:
     def __init__(
         self,
         ncsn,
-        lr,
+        lr: float,
         dataloader,
-        num_iters,
-        beta1,
-        beta2,
-        checkpoints_folder,
-        save_every,
-        weight_decay=0.0,
-        ema_rate=0.999,
-        checkpoint_name_prefix="ncsn",
+        num_iters: int,
+        beta1: float,
+        beta2: float,
+        sigma_start: float,
+        sigma_end: float,
+        n_sigmas: int,
+        checkpoints_folder: str,
+        save_every: int = 5000,
+        weight_decay: float = 0.01,
+        ema_rate: float = 0.999,
+        checkpoint_name_prefix: str = "ncsn",
     ):
-        self.L = 10
-        self.sigmas = torch.Tensor([0.599**i for i in range(0, 10)]).to(device)
+        # compute sigmas as sigma_1 / sigma_2 = ... = sigma_(n-1) / sigma_n = gamma
+        gamma = (sigma_start / sigma_end) ** (1 / n_sigmas)
+        self.sigmas = torch.Tensor(
+            [sigma_start * gamma**i for i in range(0, n_sigmas)]
+        ).to(device)
+
         self.ncsn = ncsn
         self.ncsn_opt = Adam(
             self.ncsn.parameters(),
             lr=lr,
             betas=(beta1, beta2),
-            weight_decay=weight_decay,
+            weight_decay=weight_decay,  # adding weight decays to slow down memorization
         )
+
         self.dataloader = dataloader
         self.num_iters = num_iters
         self.save_folder = checkpoints_folder
         self.save_every = save_every
         self.checkpoint_name_prefix = checkpoint_name_prefix
-        self.ema_rate = ema_rate
 
+        # Adding EMA to slow down learning and collapsing
+        self.ema_rate = ema_rate
         if self.ema_rate > 0:
             self.ema_ncsn = type(ncsn)(ncsn.config).to(device)
             self.ema_ncsn.load_state_dict(ncsn.state_dict())
@@ -50,17 +59,19 @@ class NCSNTrainer:
 
     def _loss_tensor(self, batch, which_sigmas):
         batch_size = batch.shape[0]
-        # compute target
+
+        # Compute target
         selected_sigmas = torch.index_select(self.sigmas, 0, which_sigmas)
         selected_sigmas = selected_sigmas.view(
             [batch.shape[0]] + [1] * (len(batch.shape) - 1)
         )
         perturbed_batch = batch + torch.randn_like(batch) * selected_sigmas
         target = -(perturbed_batch - batch) / (selected_sigmas**2)
-        # compute output
-        output = self.ncsn(perturbed_batch, which_sigmas)
-        # loss is ~ euclidean norm squared of the difference
 
+        # Compute output
+        output = self.ncsn(perturbed_batch, which_sigmas)
+
+        # Loss is euclidean norm squared of the difference
         diff = target - output
         normsq = torch.sum(diff**2, dim=[i for i in range(1, len(diff.shape))])
         loss = (1 / (2 * batch_size)) * normsq * torch.squeeze(selected_sigmas) ** 2
@@ -82,8 +93,8 @@ class NCSNTrainer:
             for batch, __ in self.dataloader:
                 batch = batch.to(device)
                 self.ncsn_opt.zero_grad()
-                # choose random sigma for each image in batch
-                # to minimize expected loss
+
+                # Choose random sigma for each image in batch to minimize expected loss
                 which_sigmas = torch.randint(
                     0, len(self.sigmas), (batch.shape[0],), device=device
                 )
@@ -116,21 +127,24 @@ class NCSNTrainer:
         return shape
 
     def annealed_langevin_dynamics(self, trained_ncsn, eps, T, num_samples):
-        L = len(self.sigmas)
         image_shape = self._get_image_shape()
-        x_prev = torch.rand(num_samples, *image_shape).to(device)  # uniform
-        for i in track(range(L)):
+        x_prev = torch.rand(num_samples, *image_shape).to(
+            device
+        )  # uniform noise as starting point
+
+        for i in track(range(len(self.sigmas))):
             logger.info(f"Starting sigma {i}")
-            ai = eps * self.sigmas[i] ** 2 / self.sigmas[L - 1] ** 2
+            ai = eps * self.sigmas[i] ** 2 / self.sigmas[-1] ** 2
             i_tensor = torch.Tensor([i] * num_samples).long().to(device)
-            # Need to clone x_prev for safe iteration in case of in-place ops (though not strictly needed here)
-            # But the user logic is fine.
-            for t in track(range(T)):
+
+            for _ in track(range(T)):
                 zt = torch.randn_like(x_prev)  # normal 0, I
                 score = trained_ncsn(x_prev, i_tensor)
                 x_curr = x_prev + score * ai / 2 + sqrt(ai) * zt
                 x_prev = x_curr
+
             logger.info(f"finished sigma_{i}")
+
         return x_curr
 
     def save_sample_grid(

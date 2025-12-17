@@ -1,22 +1,17 @@
-import sys
-import os
-
-
 import argparse
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from scipy import linalg
-from torchvision import transforms, datasets, models
-from torch.utils.data import DataLoader
-from rich.progress import track
 from loguru import logger
+from rich.progress import track
+from scipy import linalg
+from torch.utils.data import DataLoader
+from torchvision import datasets, models, transforms
 
-from model_mnist import CondRefineNetDilated
+from large_unet import CondRefineNetDilated
 from utils import config
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
@@ -174,7 +169,7 @@ def main():
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
-    parser.add_argument("--data_root", type=str, default="../data")
+    parser.add_argument("--data_root", type=str, default="data")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -232,7 +227,6 @@ def main():
 
     logger.info("Computing statistics for Generated Images...")
 
-    # Wrap generated samples in a simple DataLoader/iterable
     class TensorDataset(torch.utils.data.Dataset):
         def __init__(self, tensor):
             self.tensor = tensor

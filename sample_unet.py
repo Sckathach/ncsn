@@ -1,21 +1,22 @@
-import sys
 import os
+import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from loguru import logger
 import torch
+from loguru import logger
 
-from model_mnist_plus import CondRefineNetDilated
+from large_unet import CondRefineNetDilated
 from trainer import NCSNTrainer
-from utils import config, get_train_set, device
-
+from utils import config, device, get_train_set
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--eps", type=float, default=2e-5)
+    parser.add_argument("--t", type=int, default=100)
     parser.add_argument("--beta1", type=float, default=0.9)
     parser.add_argument("--beta2", type=float, default=0.999)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -27,10 +28,11 @@ if __name__ == "__main__":
     parser.add_argument("--ngf", type=int, default=64)
     parser.add_argument("--checkpoint_name", type=str, default="mnist_1.pt")
     parser.add_argument("--samples_name", type=str, default="mnist_sample.png")
+    parser.add_argument("--nrow", type=int, default=4)
     parser.add_argument("--num_iters", type=int, default=100001)
     parser.add_argument("--save_every", type=int, default=10000)
     parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--weight_decay", type=float, default=0.0)
+    parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--ema_rate", type=float, default=0.999)
     parser.add_argument("--checkpoints_folder", type=str, default="checkpoints")
     parser.add_argument("--samples_folder", type=str, default="sampled_images")
@@ -73,9 +75,7 @@ if __name__ == "__main__":
     trained_ncsn.load_state_dict(state_dict)
     trained_ncsn.eval()
 
-    eps = 2e-5
-    T = 100
-    nrow = 4
-
     logger.info(f"Saving samples to {samples_path}")
-    trainer.save_sample_grid(nrow, trained_ncsn, eps, T, output_path=samples_path)
+    trainer.save_sample_grid(
+        args.nrow, trained_ncsn, args.eps, args.t, output_path=samples_path
+    )
